@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, Plus, Trash2, Edit3, MapPin, Sprout, Settings, History, ChevronDown, ChevronRight } from "lucide-react";
+import { Download, Plus, Trash2, Edit3, Settings, History, ChevronDown, ChevronRight } from "lucide-react";
 
 /** ---------- Types ---------- */
 type TreeStatus = "New Planting" | "Replanting" | "Kneecapped" | "Grafted" | "Removed";
@@ -12,14 +12,14 @@ type Orchard = { id: string; sectorId: string; name: string };
 type Block = {
   id: string;
   orchardId: string;
-  name: string;               // e.g., B3
-  variety: string;            // e.g., Jazz
-  structureType: string;      // e.g., Tall Spindle, 2D V
-  rowCount: number;           // number of rows (managed in Master only)
-  hectares: number;           // total ha
+  name: string;
+  variety: string;
+  structureType: string;
+  rowCount: number;
+  hectares: number;
   latitude?: number;
   longitude?: number;
-  health?: number;            // block-level health (0–100)
+  health?: number;
 };
 
 type TreeRecord = {
@@ -27,8 +27,8 @@ type TreeRecord = {
   sectorId: string;
   orchardId: string;
   blockId: string;
-  quantity: number;           // how many trees affected by this event
-  status: TreeStatus;         // event type
+  quantity: number;
+  status: TreeStatus;
   tce?: number;
   rootstock?: string;
   age?: number;
@@ -139,7 +139,7 @@ function logAudit(setter: React.Dispatch<React.SetStateAction<AuditEntry[]>>, en
   });
 }
 
-/** ---------- CSV (export grouped-friendly) ---------- */
+/** ---------- CSV ---------- */
 function toCSV(records: TreeRecord[], master: { sectors: Sector[]; orchards: Orchard[]; blocks: Block[] }) {
   const getName = <T extends {id:string;name:string}>(arr: T[], id: string) => arr.find(x=>x.id===id)?.name ?? "";
   const getBlock = (id:string)=> master.blocks.find(b=>b.id===id);
@@ -204,7 +204,6 @@ export default function Page() {
     return map;
   }, [master.blocks]);
 
-  // Filter events
   const filteredEvents = useMemo(() => records.filter(r => {
     if (sectorFilter!=="all" && r.sectorId!==sectorFilter) return false;
     if (orchardFilter!=="all" && r.orchardId!==orchardFilter) return false;
@@ -218,7 +217,6 @@ export default function Page() {
     return q ? blob.includes(q) : true;
   }), [records, sectorFilter, orchardFilter, blockFilter, statusFilter, query, master]);
 
-  // Group by block
   const grouped = useMemo(() => {
     const g = new Map<string, { block: Block; sectorId: string; orchardId: string; events: TreeRecord[]; totalQty: number; lastUpdated: string }>();
     for (const ev of filteredEvents) {
@@ -231,9 +229,7 @@ export default function Page() {
       cur.totalQty += Number(ev.quantity || 0);
       if (ev.lastUpdated > cur.lastUpdated) cur.lastUpdated = ev.lastUpdated;
     }
-    // sort events in each group by date desc
     for (const [,v] of g) v.events.sort((a,b)=>b.lastUpdated.localeCompare(a.lastUpdated));
-    // return sorted groups by sector/orchard/block name
     return Array.from(g.values()).sort((a,b)=>{
       const an = master.sectors.find(s=>s.id===a.sectorId)?.name ?? "";
       const bn = master.sectors.find(s=>s.id===b.sectorId)?.name ?? "";
@@ -245,9 +241,8 @@ export default function Page() {
     });
   }, [filteredEvents, master]);
 
-  // KPIs
   const kpis = useMemo(() => {
-    const totalTrees = filteredEvents.reduce((sum, ev)=> sum + (ev.quantity || 0), 0); // (1) sum quantities
+    const totalTrees = filteredEvents.reduce((sum, ev)=> sum + (ev.quantity || 0), 0);
     const uniqueBlocks = grouped.length;
     const avgBlockHealth = (() => {
       const vals = grouped.map(g=>g.block.health).filter((x): x is number => typeof x === "number");
@@ -283,11 +278,15 @@ export default function Page() {
     const existing = records.find(x=>x.id===rec.id);
     rec.lastUpdated = new Date().toISOString();
 
+    type DiffKey = keyof Pick<TreeRecord,"sectorId"|"orchardId"|"blockId"|"quantity"|"status"|"tce"|"notes"|"rootstock"|"age">;
+    const fields: DiffKey[] = ["sectorId","orchardId","blockId","quantity","status","tce","notes","rootstock","age"];
+    const getVal = <K extends DiffKey>(obj: TreeRecord | undefined, key: K): TreeRecord[K] | undefined =>
+      obj ? obj[key] : undefined;
+
     const diffs: string[] = [];
-    const fields: (keyof TreeRecord)[] = ["sectorId","orchardId","blockId","quantity","status","tce","notes","rootstock","age"];
     for (const k of fields) {
-      const before = existing ? (existing[k] as any) : undefined;
-      const after = (rec as any)[k];
+      const before = getVal(existing, k);
+      const after: TreeRecord[typeof k] = rec[k];
       if (JSON.stringify(before) !== JSON.stringify(after)) {
         diffs.push(`${String(k)}: ${before ?? "—"} → ${after ?? "—"}`);
       }
@@ -316,7 +315,6 @@ export default function Page() {
   const getOrchName   = (id:string)=> master.orchards.find(o=>o.id===id)?.name ?? "";
   const getBlock      = (id:string)=> master.blocks.find(b=>b.id===id);
 
-  /** ---------- Render ---------- */
   return (
     <div className="min-h-screen w-full bg-neutral-50 text-neutral-900">
       {/* Header */}
@@ -377,7 +375,7 @@ export default function Page() {
             </div>
             <div>
               <div className="text-xs text-neutral-600 mb-1">Status</div>
-              <select className="w-full rounded border px-3 py-2 text-sm" value={statusFilter} onChange={e=>setStatusFilter(e.target.value as any)}>
+              <select className="w-full rounded border px-3 py-2 text-sm" value={statusFilter} onChange={e=>setStatusFilter(e.target.value as TreeStatus | "all")}>
                 {(["all","New Planting","Replanting","Kneecapped","Grafted","Removed"] as const).map(s=><option key={s} value={s as any}>{s}</option>)}
               </select>
             </div>
@@ -385,7 +383,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* KPIs (Issues card removed) */}
+      {/* KPIs */}
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 md:grid-cols-3">
         <div className="rounded-xl border bg-white p-4">
           <div className="text-xs text-neutral-600">Total Trees (sum of quantities)</div>
@@ -401,7 +399,7 @@ export default function Page() {
         </div>
       </section>
 
-      {/* Grouped Table (one row per Block; expandable to show changes/events) */}
+      {/* Grouped Table */}
       <section className="mx-auto max-w-6xl px-4 py-4">
         <div className="overflow-x-auto rounded-xl border bg-white">
           <table className={`w-full ${dense ? "text-sm" : ""}`}>
@@ -447,7 +445,6 @@ export default function Page() {
                       <td className="p-3 text-right">
                         <div className="inline-flex gap-1">
                           <button className="rounded border px-2 py-1" onClick={()=>{
-                            // quick-add an entry for this block
                             setEditing({
                               id: uuid(),
                               sectorId: g.sectorId,
@@ -516,13 +513,12 @@ export default function Page() {
         </div>
       </section>
 
-      {/* Entry Editor (no Rows; quantity only) */}
+      {/* Entry Editor */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-4xl rounded-xl bg-white p-4">
             <div className="mb-2 text-lg font-semibold">{records.some(r=>r.id===editing.id) ? "Edit Entry" : "Add Entry"}</div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {/* Sector */}
               <div>
                 <div className="text-xs mb-1">Sector</div>
                 <select
@@ -540,7 +536,6 @@ export default function Page() {
                 </select>
               </div>
 
-              {/* Orchard */}
               <div>
                 <div className="text-xs mb-1">Orchard</div>
                 <select
@@ -557,7 +552,6 @@ export default function Page() {
                 </select>
               </div>
 
-              {/* Block */}
               <div>
                 <div className="text-xs mb-1">Block / Lot</div>
                 <select
@@ -589,7 +583,7 @@ export default function Page() {
                 ) : <div className="text-sm text-neutral-500">Select a block to view details.</div>}
               </div>
 
-              {/* Editable event fields (no Rows) */}
+              {/* Editable event fields */}
               <div>
                 <div className="text-xs mb-1">Status</div>
                 <select className="w-full rounded border px-3 py-2 text-sm" value={editing.status} onChange={e=>setEditing({...editing!, status: e.target.value as TreeStatus})}>
@@ -601,15 +595,6 @@ export default function Page() {
               <div><div className="text-xs mb-1">Rootstock</div><input className="w-full rounded border px-3 py-2 text-sm" value={editing.rootstock ?? ""} onChange={e=>setEditing({...editing!, rootstock: e.target.value || undefined})}/></div>
               <div><div className="text-xs mb-1">Age (yrs)</div><input type="number" className="w-full rounded border px-3 py-2 text-sm" value={editing.age ?? 0} onChange={e=>setEditing({...editing!, age: Number(e.target.value) || undefined})}/></div>
               <div className="md:col-span-3"><div className="text-xs mb-1">Notes</div><input className="w-full rounded border px-3 py-2 text-sm" value={editing.notes ?? ""} onChange={e=>setEditing({...editing!, notes: e.target.value || undefined})}/></div>
-
-              {/* Audit trail for THIS entry */}
-              <div className="md:col-span-3 rounded border bg-neutral-50 p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium"><History className="h-4 w-4"/> Audit trail (entry)</div>
-                <div className="max-h-40 overflow-auto text-sm">
-                  {/* We keep per-entry audit here; grouped changes are shown in the expand list */}
-                  {/* (Audit list appears after you make edits to this entry) */}
-                </div>
-              </div>
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -625,7 +610,6 @@ export default function Page() {
         <MasterManager
           master={master}
           records={records}
-          audit={audit}
           onClose={()=>setShowMasterMgr(false)}
           setMaster={setMaster}
           setAudit={setAudit}
@@ -657,16 +641,15 @@ export default function Page() {
   );
 }
 
-/** ---------- Master Manager Component (unchanged from v3 except rows live here) ---------- */
+/** ---------- Master Manager Component ---------- */
 function MasterManager(props: {
   master: { sectors: Sector[]; orchards: Orchard[]; blocks: Block[] };
-  records: TreeRecord[];
-  audit: AuditEntry[];
+  records: TreeRecord[]; // used for delete checks
   onClose: () => void;
   setMaster: React.Dispatch<React.SetStateAction<{ sectors: Sector[]; orchards: Orchard[]; blocks: Block[] }>>;
   setAudit: React.Dispatch<React.SetStateAction<AuditEntry[]>>;
 }) {
-  const { master, records, onClose, setMaster, audit, setAudit } = props;
+  const { master, records, onClose, setMaster, setAudit } = props;
 
   const [sectorName, setSectorName] = useState("");
   const [orchName, setOrchName] = useState("");
@@ -683,7 +666,7 @@ function MasterManager(props: {
 
   function log(entity:"sector"|"orchard"|"block", entityId:string, message:string) {
     const e: AuditEntry = { id: uuid(), at: new Date().toISOString(), who: "local", entity, entityId, message };
-    props.setAudit(prev => { const nxt=[e, ...prev]; localStorage.setItem(LS_AUDIT, JSON.stringify(nxt)); return nxt; });
+    setAudit(prev => { const nxt=[e, ...prev]; localStorage.setItem(LS_AUDIT, JSON.stringify(nxt)); return nxt; });
   }
 
   return (
@@ -829,7 +812,7 @@ function MasterManager(props: {
                     <button
                       className="rounded border px-2 py-1"
                       onClick={()=>{
-                        if (props.records.some(r=>r.blockId===b.id)) return toast.error("Remove events in this block first.");
+                        if (records.some(r=>r.blockId===b.id)) return toast.error("Remove events in this block first.");
                         setMaster(m=>({ ...m, blocks: m.blocks.filter(x=>x.id!==b.id) }));
                       }}
                     >Delete</button>
@@ -845,7 +828,7 @@ function MasterManager(props: {
             onClick={() => {
               localStorage.removeItem(LS_MASTER);
               const m = loadMaster();
-              props.setMaster(m);
+              setMaster(m);
               toast.success("Master reset to seed");
             }}
             className="rounded border px-3 py-2 text-sm"
