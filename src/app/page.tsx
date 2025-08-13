@@ -3,6 +3,35 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Download, Plus, Trash2, Edit3, Settings, History, ChevronDown, ChevronRight } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+
+// Map DB -> UI types
+const mapBlock = (b: any) => ({
+  id: b.id,
+  orchardId: b.orchard_id,
+  name: b.name,
+  variety: b.variety ?? "",
+  structureType: b.structure_type ?? "",
+  rowCount: b.row_count ?? 0,
+  hectares: Number(b.hectares ?? 0),
+  latitude: b.latitude ?? undefined,
+  longitude: b.longitude ?? undefined,
+  health: b.health ?? undefined,
+});
+
+const mapEvent = (e: any) => ({
+  id: e.id,
+  sectorId: e.sector_id,
+  orchardId: e.orchard_id,
+  blockId: e.block_id,
+  quantity: e.quantity ?? 0,
+  status: e.status as TreeStatus,
+  tce: e.tce === null ? undefined : Number(e.tce),
+  rootstock: e.rootstock ?? undefined,
+  age: e.age ?? undefined,
+  notes: e.notes ?? undefined,
+  lastUpdated: e.last_updated ?? new Date().toISOString(),
+});
 
 /** ---------- Types ---------- */
 type TreeStatus = "New Planting" | "Replanting" | "Kneecapped" | "Grafted" | "Removed";
@@ -189,11 +218,41 @@ export default function Page() {
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const m = loadMaster();
-    const t = loadTrees(m);
-    const a = loadAudit();
-    setMaster(m); setRecords(t); setAudit(a);
-  }, []);
+    const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+    // Fallback to local seed if no DB configured
+    if (!hasSupabase) {
+      const m = loadMaster();
+      const t = loadTrees(m);
+      const a = loadAudit();
+      setMaster(m); setRecords(t); setAudit(a);
+      return;
+    }
+  
+    (async () => {
+      // Load master data
+      const [{ data: sectors }, { data: orchards }, { data: blocks }] = await Promise.all([
+        supabase.from("sectors").select("*").order("name"),
+        supabase.from("orchards").select("*").order("name"),
+        supabase.from("blocks").select("*").order("name"),
+      ]);
+  
+      setMaster({
+        sectors: sectors ?? [],
+        orchards: orchards ?? [],
+        blocks: (blocks ?? []).map(mapBlock),
+      });
+  
+      // Load events
+      const { data: events } = await supabase
+        .from("tree_events")
+        .select("*")
+        .order("last_updated", { ascending: false });
+  
+      setRecords((events ?? []).map(mapEvent));
+      // Optional: let the user know this page is live from DB
+      // toast.success("Loaded from Supabase");
+    })();
+  }, []);  
   useEffect(() => saveTrees(records), [records]);
   useEffect(() => saveMaster(master), [master]);
 
