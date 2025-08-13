@@ -5,8 +5,36 @@ import { toast } from "sonner";
 import { Download, Plus, Trash2, Edit3, Settings, History, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-// Map DB -> UI types
-const mapBlock = (b: any) => ({
+/** Types that match the Supabase rows */
+type BlockRow = {
+  id: string;
+  orchard_id: string;
+  name: string;
+  variety: string | null;
+  structure_type: string | null;
+  row_count: number | null;
+  hectares: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  health: number | null;
+};
+
+type TreeEventRow = {
+  id: string;
+  sector_id: string;
+  orchard_id: string;
+  block_id: string;
+  quantity: number | null;
+  status: TreeStatus;
+  tce: number | null;
+  rootstock: string | null;
+  age: number | null;
+  notes: string | null;
+  last_updated: string | null;
+};
+
+/** Map DB -> UI types (no `any`) */
+const mapBlock = (b: BlockRow): Block => ({
   id: b.id,
   orchardId: b.orchard_id,
   name: b.name,
@@ -19,19 +47,20 @@ const mapBlock = (b: any) => ({
   health: b.health ?? undefined,
 });
 
-const mapEvent = (e: any) => ({
+const mapEvent = (e: TreeEventRow): TreeRecord => ({
   id: e.id,
   sectorId: e.sector_id,
   orchardId: e.orchard_id,
   blockId: e.block_id,
   quantity: e.quantity ?? 0,
-  status: e.status as TreeStatus,
+  status: e.status,
   tce: e.tce === null ? undefined : Number(e.tce),
   rootstock: e.rootstock ?? undefined,
   age: e.age ?? undefined,
   notes: e.notes ?? undefined,
   lastUpdated: e.last_updated ?? new Date().toISOString(),
 });
+
 
 /** ---------- Types ---------- */
 type TreeStatus = "New Planting" | "Replanting" | "Kneecapped" | "Grafted" | "Removed";
