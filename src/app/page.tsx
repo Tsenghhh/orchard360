@@ -255,6 +255,24 @@ export default function Page() {
   }, []);  
   useEffect(() => saveTrees(records), [records]);
   useEffect(() => saveMaster(master), [master]);
+  async function refreshAll() {
+    const [{ data: sectors }, { data: orchards }, { data: blocks }] = await Promise.all([
+      supabase.from("sectors").select("*").order("name"),
+      supabase.from("orchards").select("*").order("name"),
+      supabase.from("blocks").select("*").order("name"),
+    ]);
+    setMaster({
+      sectors: sectors ?? [],
+      orchards: orchards ?? [],
+      blocks: (blocks ?? []).map(mapBlock),
+    });
+    const { data: events } = await supabase
+      .from("tree_events")
+      .select("*")
+      .order("last_updated", { ascending: false });
+    setRecords((events ?? []).map(mapEvent));
+  }
+  
 
   const orchardsBySector = useMemo(() => {
     const map: Record<string, Orchard[]> = {};
@@ -333,46 +351,46 @@ export default function Page() {
     reader.readAsText(f);
   }
 
-  function saveEdit(rec: TreeRecord) {
+  async function saveEdit(rec: TreeRecord) {
     if (!rec.sectorId) return toast.error("Select a sector");
     if (!rec.orchardId) return toast.error("Select an orchard");
     if (!rec.blockId) return toast.error("Select a block/lot");
-    if (!rec.quantity || rec.quantity < 0) return toast.error("Quantity must be ≥ 0");
-    const existing = records.find(x=>x.id===rec.id);
-    rec.lastUpdated = new Date().toISOString();
-
-    type DiffKey = keyof Pick<TreeRecord,"sectorId"|"orchardId"|"blockId"|"quantity"|"status"|"tce"|"notes"|"rootstock"|"age">;
-    const fields: DiffKey[] = ["sectorId","orchardId","blockId","quantity","status","tce","notes","rootstock","age"];
-    const getVal = <K extends DiffKey>(obj: TreeRecord | undefined, key: K): TreeRecord[K] | undefined =>
-      obj ? obj[key] : undefined;
-
-    const diffs: string[] = [];
-    for (const k of fields) {
-      const before = getVal(existing, k);
-      const after: TreeRecord[typeof k] = rec[k];
-      if (JSON.stringify(before) !== JSON.stringify(after)) {
-        diffs.push(`${String(k)}: ${before ?? "—"} → ${after ?? "—"}`);
-      }
-    }
-
-    setRecords(prev => {
-      const i = prev.findIndex(x=>x.id===rec.id);
-      if (i===-1) return [rec, ...prev];
-      const copy = [...prev]; copy[i]=rec; return copy;
-    });
-
-    if (diffs.length) {
-      logAudit(setAudit, { entity: "tree", entityId: rec.id, message: diffs.join(" | ") });
-    }
+    if (rec.quantity < 0) return toast.error("Quantity must be ≥ 0");
+  
+    const payload = {
+      id: rec.id,
+      sector_id: rec.sectorId,
+      orchard_id: rec.orchardId,
+      block_id: rec.blockId,
+      quantity: rec.quantity,
+      status: rec.status,
+      tce: rec.tce ?? null,
+      rootstock: rec.rootstock ?? null,
+      age: rec.age ?? null,
+      notes: rec.notes ?? null,
+      last_updated: new Date().toISOString(),
+    };
+  
+    const exists = records.some(r => r.id === rec.id);
+    const { error } = exists
+      ? await supabase.from("tree_events").update(payload).eq("id", rec.id)
+      : await supabase.from("tree_events").insert(payload);
+  
+    if (error) return toast.error(error.message);
+  
     setEditing(null);
+    await refreshAll();
     toast.success("Saved");
   }
+  
 
-  function removeRecord(id: string) {
-    setRecords(prev => prev.filter(r => r.id !== id));
-    logAudit(setAudit, { entity:"tree", entityId:id, message:"deleted" });
+  async function removeRecord(id: string) {
+    const { error } = await supabase.from("tree_events").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    await refreshAll();
     toast("Entry deleted");
   }
+  
 
   const getSectorName = (id:string)=> master.sectors.find(s=>s.id===id)?.name ?? "";
   const getOrchName   = (id:string)=> master.orchards.find(o=>o.id===id)?.name ?? "";
